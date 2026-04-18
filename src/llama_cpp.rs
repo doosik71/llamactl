@@ -1,38 +1,41 @@
 use std::io::{self, Write};
 use std::process::Command;
 
-pub fn run() {
-    match llama_cpp_version() {
-        Some(version) => {
-            println!("llama.cpp가 설치되어 있습니다.");
-            println!("버전: {version}");
+pub fn check() {
+    match llama_cpp_versions() {
+        Some((cli_version, server_version)) => {
+            println!("llama.cpp is installed.");
+            println!("llama-cli version: {cli_version}");
+            println!("llama-server version: {server_version}");
         }
         None => {
-            println!("llama.cpp가 설치되어 있지 않습니다.");
+            println!("llama-cli and llama-server are not both installed.");
 
             let install_plan = install_plan();
-            println!("설치 명령:");
+            println!("Installation command:");
             println!("{}", install_plan.message);
 
             if let Some(command) = install_plan.command {
-                if ask_yes_no("llama.cpp를 설치할까요? [y/N]: ") {
+                if ask_yes_no("Install llama.cpp? [y/N]: ") {
                     match run_install_command(command) {
-                        Ok(()) => println!("설치 명령을 실행했습니다."),
-                        Err(error) => eprintln!("설치 명령 실행 실패: {error}"),
+                        Ok(()) => println!("Installation command executed."),
+                        Err(error) => eprintln!("Installation command failed: {error}"),
                     }
                 } else {
-                    println!("설치를 건너뜁니다.");
+                    println!("Skipping installation.");
                 }
             } else {
-                println!("자동 실행할 설치 명령이 없어서 설치를 진행하지 않습니다.");
+                println!("No automatic install command could be determined. Please check the installation command for your distribution.");
             }
         }
     }
 }
 
-fn llama_cpp_version() -> Option<String> {
-    command_version("llama-cli")
-        .or_else(|| command_version("llama"))
+fn llama_cpp_versions() -> Option<(String, String)> {
+    let cli_version = command_version("llama-cli")?;
+    let server_version = command_version("llama-server")?;
+
+    Some((cli_version, server_version))
 }
 
 fn command_version(command: &str) -> Option<String> {
@@ -108,9 +111,20 @@ struct InstallPlan {
 }
 
 fn install_plan() -> InstallPlan {
+    let cmd = "if [ -d llama.cpp ]; then \
+                cd llama.cpp; \
+            else \
+                git clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp; \
+            fi && \
+            cmake -B build -DLLAMA_SERVER=ON && \
+            cmake --build build -j && \
+            mkdir -p ~/.local/bin && \
+            ln -sf \"$(pwd)/build/bin/llama-cli\" ~/.local/bin/llama-cli && \
+            ln -sf \"$(pwd)/build/bin/llama-server\" ~/.local/bin/llama-server";
+
     InstallPlan {
-        message: "git clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp && cmake -B build && cmake --build build -j && mkdir -p ~/.local/bin && ln -sf \"$(pwd)/build/bin/llama-cli\" ~/.local/bin/llama-cli",
-        command: Some("git clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp && cmake -B build && cmake --build build -j && mkdir -p ~/.local/bin && ln -sf \"$(pwd)/build/bin/llama-cli\" ~/.local/bin/llama-cli"),
+        message: cmd,
+        command: Some(cmd),
     }
 }
 
@@ -136,7 +150,21 @@ fn run_install_command(command: &str) -> io::Result<()> {
     } else {
         Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("종료 코드: {status}"),
+            format!("Exit code: {status}"),
+        ))
+    }
+}
+
+pub fn run_model(model: &str) -> io::Result<()> {
+    println!("llama-cli -m {model}");
+    let status = Command::new("llama-cli").arg("-hf").arg(model).status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Exit code: {status}"),
         ))
     }
 }

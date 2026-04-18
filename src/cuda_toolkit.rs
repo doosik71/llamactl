@@ -1,30 +1,30 @@
 use std::io::{self, Write};
 use std::process::{Command, Stdio};
 
-pub fn run() {
+pub fn check() {
     match cuda_toolkit_version() {
         Some(version) => {
-            println!("CUDA Toolkit이 설치되어 있습니다.");
-            println!("버전: {version}");
+            println!("CUDA Toolkit is installed.");
+            println!("Version: {version}");
         }
         None => {
-            println!("CUDA Toolkit이 설치되어 있지 않습니다.");
+            println!("CUDA Toolkit is not installed.");
 
             let install_plan = install_plan();
-            println!("설치 명령:");
+            println!("Installation command:");
             println!("{}", install_plan.message);
 
             if let Some(command) = install_plan.command {
-                if ask_yes_no("CUDA Toolkit을 설치할까요? [y/N]: ") {
+                if ask_yes_no("Install CUDA Toolkit? [y/N]: ") {
                     match run_install_command(command) {
-                        Ok(()) => println!("설치 명령을 실행했습니다."),
-                        Err(error) => eprintln!("설치 명령 실행 실패: {error}"),
+                        Ok(()) => println!("Installation command executed."),
+                        Err(error) => eprintln!("Installation command failed: {error}"),
                     }
                 } else {
-                    println!("설치를 건너뜁니다.");
+                    println!("Skipping installation.");
                 }
             } else {
-                println!("자동 실행할 설치 명령이 없어서 설치를 진행하지 않습니다.");
+                println!("No automatic install command could be determined. Please check the installation command for your distribution.");
             }
         }
     }
@@ -84,7 +84,7 @@ fn install_plan() -> InstallPlan {
         }
     } else {
         InstallPlan {
-            message: "설치 명령을 자동으로 결정할 수 없습니다. 사용 중인 배포판의 CUDA Toolkit 설치 명령을 확인해 주세요.",
+            message: "Unable to determine an installation command automatically. Please check the CUDA Toolkit install command for your distribution.",
             command: None,
         }
     }
@@ -121,7 +121,7 @@ fn run_install_command(command: &str) -> io::Result<()> {
     } else {
         Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("종료 코드: {status}"),
+            format!("Exit code: {status}"),
         ))
     }
 }

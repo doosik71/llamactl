@@ -1,6 +1,6 @@
-# PRD: llamactl (Rust 기반 llama.cpp 터미널 UI 컨트롤러)
+# PRD: easyllama (Rust 기반 llama.cpp 터미널 UI 컨트롤러)
 
-사용자가 복잡한 파라미터 학습 없이 `llama-cli`의 강력한 기능을 터미널에서 직관적으로 제어할 수 있도록 돕는 Rust 기반의 TUI(Terminal User Interface) 도구, **llamactl**의 제품 요구사항 문서입니다.
+사용자가 복잡한 파라미터 학습 없이 `llama-cli`의 강력한 기능을 터미널에서 직관적으로 제어할 수 있도록 돕는 Rust 기반의 TUI(Terminal User Interface) 도구, **easyllama**의 제품 요구사항 문서입니다.
 
 ---
 
@@ -45,8 +45,8 @@
 
 ## 4. 사용자 여정 (User Journey)
 
-1. **설치**: `cargo install llamactl` 실행.
-2. **초기화**: `llamactl init` 명령어로 하드웨어 최적화 빌드 수행 (CUDA 자동 설정 포함).
+1. **설치**: `cargo install easyllama` 실행.
+2. **초기화**: `easyllama init` 명령어로 하드웨어 최적화 빌드 수행 (CUDA 자동 설정 포함).
 3. **모델 로드**: TUI 내에서 모델 리스트를 탐색하거나 Hugging Face 주소를 붙여넣어 로드.
 4. **추론**: 직관적인 패널을 통해 파라미터를 조절하며 모델과 대화.
 5. **관리**: 세션 로그를 저장하거나 커스텀 파라미터 프로필을 생성하여 저장.

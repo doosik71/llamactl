@@ -40,6 +40,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "easyllama"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+]
+
+[[package]]
 name = "errno"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -60,13 +67,6 @@ name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
-
-[[package]]
-name = "llamactl"
-version = "0.1.0"
-dependencies = [
- "crossterm",
-]
 
 [[package]]
 name = "lock_api"

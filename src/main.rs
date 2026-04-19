@@ -24,6 +24,7 @@ struct CliArgs {
     model: Option<String>,
     prompt: Option<String>,
     file: Option<String>,
+    list: bool,
 }
 
 fn main() {
@@ -34,6 +35,20 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if args.list {
+        let gguf_list = huggingface::get_text_generation_gguf();
+
+        if gguf_list.is_empty() {
+            println!("No GGUF models for text generation were found.");
+        } else {
+            if let Err(error) = model_picker::print_model_list(&gguf_list) {
+                eprintln!("Failed to print model list: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
 
     if args.prompt.is_some() && args.file.is_some() {
         eprintln!("--prompt and --file cannot be used together.");
@@ -131,6 +146,7 @@ fn parse_args() -> Result<CliArgs, String> {
     let mut model = None;
     let mut prompt = None;
     let mut file = None;
+    let mut list = false;
 
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -138,6 +154,9 @@ fn parse_args() -> Result<CliArgs, String> {
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
+            }
+            "--list" => {
+                list = true;
             }
             "--mode" => {
                 let value = args.next().ok_or("--mode requires a value.")?;
@@ -166,6 +185,7 @@ fn parse_args() -> Result<CliArgs, String> {
         model,
         prompt,
         file,
+        list,
     })
 }
 
@@ -178,9 +198,7 @@ fn parse_run_mode(value: &str) -> Result<RunMode, String> {
 }
 
 fn print_help() {
-    println!(
-        "Usage: ezllama [--mode client|server] [--model <name>]"
-    );
+    println!("Usage: ezllama [--list] [--mode client|server] [--model <name>]");
 }
 
 fn select_run_mode() -> io::Result<RunMode> {

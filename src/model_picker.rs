@@ -16,18 +16,31 @@ pub fn select_model(models: &[String]) -> io::Result<Option<String>> {
         return Ok(None);
     }
 
-    let installed = installed_flags(models);
+    let models = ordered_models(models);
     let selected = list_picker::select_index(models.len(), |stdout, selected, offset| {
-        draw(stdout, models, &installed, selected, offset)
+        draw(stdout, &models, selected, offset)
     })?;
 
-    Ok(selected.map(|index| models[index].clone()))
+    Ok(selected.map(|index| models[index].model.clone()))
+}
+
+pub fn print_model_list(models: &[String]) -> io::Result<()> {
+    let mut stdout = io::stdout();
+
+    for model in ordered_models(models) {
+        if model.installed {
+            writeln!(stdout, "{} (installed)", model.model)?;
+        } else {
+            writeln!(stdout, "{}", model.model)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn draw(
     stdout: &mut io::Stdout,
-    models: &[String],
-    installed: &[bool],
+    models: &[ModelEntry],
     selected: usize,
     offset: usize,
 ) -> io::Result<()> {
@@ -36,7 +49,7 @@ fn draw(
     let end = (offset + visible_rows).min(models.len());
     let max_width = terminal::size()?.0 as usize;
 
-    queue!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::All))?;
+    queue!(stdout, cursor::MoveTo(0, 0), Clear(ClearType::CurrentLine))?;
     writeln!(stdout, "Select model: ")?;
 
     for (index, model) in models[offset..end].iter().enumerate() {
@@ -47,17 +60,17 @@ fn draw(
         } else {
             "  "
         };
-        let suffix = if installed.get(absolute_index).copied().unwrap_or(false) {
+        let suffix = if model.installed {
             " (installed)"
         } else {
             ""
         };
-        let line = format_model_line(prefix, model, suffix, max_width);
+        let line = format_model_line(prefix, &model.model, suffix, max_width);
 
         queue!(stdout, cursor::MoveTo(0, y), Clear(ClearType::CurrentLine))?;
 
         if absolute_index == selected {
-            let foreground = if installed.get(absolute_index).copied().unwrap_or(false) {
+            let foreground = if model.installed {
                 Color::Green
             } else {
                 Color::Reset
@@ -70,7 +83,7 @@ fn draw(
                 SetAttribute(Attribute::Reset),
                 ResetColor
             )?;
-        } else if installed.get(absolute_index).copied().unwrap_or(false) {
+        } else if model.installed {
             queue!(
                 stdout,
                 SetForegroundColor(Color::Green),
@@ -80,6 +93,10 @@ fn draw(
         } else {
             queue!(stdout, Print(line))?;
         }
+    }
+
+    for y in (end - offset + 1)..=visible_rows {
+        queue!(stdout, cursor::MoveTo(0, y as u16), Clear(ClearType::CurrentLine))?;
     }
 
     if rows > 1 {
@@ -134,11 +151,17 @@ fn format_model_line(prefix: &str, model: &str, suffix: &str, max_width: usize) 
     line
 }
 
-fn installed_flags(models: &[String]) -> Vec<bool> {
-    models
+fn ordered_models(models: &[String]) -> Vec<ModelEntry> {
+    let mut entries: Vec<ModelEntry> = models
         .iter()
-        .map(|model| model_is_installed(model))
-        .collect()
+        .map(|model| ModelEntry {
+            model: model.clone(),
+            installed: model_is_installed(model),
+        })
+        .collect();
+
+    sort_model_entries(&mut entries);
+    entries
 }
 
 fn model_is_installed(model: &str) -> bool {
@@ -184,4 +207,55 @@ fn cache_roots() -> Vec<PathBuf> {
 
 fn repo_cache_dir_name(model: &str) -> String {
     format!("models--{}", model.replace('/', "--"))
+}
+
+fn sort_model_entries(entries: &mut [ModelEntry]) {
+    entries.sort_by(|a, b| b.installed.cmp(&a.installed));
+}
+
+#[derive(Clone)]
+struct ModelEntry {
+    model: String,
+    installed: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ordered_models_put_installed_items_first() {
+        let mut entries = vec![
+            ModelEntry {
+                model: "org/uninstalled-a".to_string(),
+                installed: false,
+            },
+            ModelEntry {
+                model: "org/installed-a".to_string(),
+                installed: true,
+            },
+            ModelEntry {
+                model: "org/uninstalled-b".to_string(),
+                installed: false,
+            },
+            ModelEntry {
+                model: "org/installed-b".to_string(),
+                installed: true,
+            },
+        ];
+
+        sort_model_entries(&mut entries);
+
+        let ordered: Vec<_> = entries.into_iter().map(|entry| entry.model).collect();
+
+        assert_eq!(
+            ordered,
+            vec![
+                "org/installed-a".to_string(),
+                "org/installed-b".to_string(),
+                "org/uninstalled-a".to_string(),
+                "org/uninstalled-b".to_string(),
+            ]
+        );
+    }
 }

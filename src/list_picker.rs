@@ -39,9 +39,9 @@ where
     let mut selected = 0usize;
     let mut offset = 0usize;
 
-    loop {
-        draw(stdout, selected, offset)?;
+    draw(stdout, selected, offset)?;
 
+    loop {
         if !event::poll(Duration::from_millis(200))? {
             continue;
         }
@@ -50,35 +50,53 @@ where
             continue;
         };
 
+        let mut changed = false;
         match key_event.code {
             KeyCode::Up => {
-                selected = selected.saturating_sub(1);
-                if selected < offset {
-                    offset = selected;
+                let next_selected = selected.saturating_sub(1);
+                if next_selected != selected {
+                    selected = next_selected;
+                    if selected < offset {
+                        offset = selected;
+                    }
+                    changed = true;
                 }
             }
             KeyCode::Down => {
+                let mut next_selected = selected;
                 if selected + 1 < item_count {
-                    selected += 1;
+                    next_selected += 1;
                 }
-                let visible_rows = visible_rows()?;
-                if selected >= offset + visible_rows {
-                    offset = selected + 1 - visible_rows;
+                if next_selected != selected {
+                    selected = next_selected;
+                    let visible_rows = visible_rows()?;
+                    if selected >= offset + visible_rows {
+                        offset = selected + 1 - visible_rows;
+                    }
+                    changed = true;
                 }
             }
             KeyCode::PageUp => {
                 let visible_rows = visible_rows()?;
-                selected = selected.saturating_sub(visible_rows);
-                offset = offset.saturating_sub(visible_rows);
-                if selected < offset {
-                    offset = selected;
+                let next_selected = selected.saturating_sub(visible_rows);
+                if next_selected != selected {
+                    selected = next_selected;
+                    offset = offset.saturating_sub(visible_rows);
+                    if selected < offset {
+                        offset = selected;
+                    }
+                    changed = true;
                 }
             }
             KeyCode::PageDown => {
                 let visible_rows = visible_rows()?;
-                selected = (selected + visible_rows).min(item_count - 1);
-                if selected >= offset + visible_rows {
-                    offset = selected + 1 - visible_rows;
+                let next_selected = (selected + visible_rows).min(item_count - 1);
+                if next_selected != selected {
+                    selected = next_selected;
+                    if selected >= offset + visible_rows {
+                        offset = selected + 1 - visible_rows;
+                    }
+                    changed = true;
                 }
             }
             KeyCode::Enter => {
@@ -88,6 +106,10 @@ where
                 return Ok(None);
             }
             _ => {}
+        }
+
+        if changed {
+            draw(stdout, selected, offset)?;
         }
     }
 }

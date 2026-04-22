@@ -3,7 +3,12 @@ use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
 
+use crossterm::style::Color;
+
 use crate::list_picker::{self, PickerItem};
+
+pub const DEFAULT_CONTEXT_SIZE: u32 = 16384;
+const CONTEXT_SIZE_OPTIONS: [u32; 4] = [4096, 8192, 16384, 32768];
 
 pub struct CheckOptions {
     pub verbose: bool,
@@ -395,10 +400,56 @@ fn run_install_command(command: &str) -> io::Result<()> {
     }
 }
 
+pub fn select_context_size() -> io::Result<Option<u32>> {
+    let items: Vec<PickerItem> = CONTEXT_SIZE_OPTIONS
+        .iter()
+        .map(|size| PickerItem {
+            display: format_context_size(*size),
+            value: size.to_string(),
+            color: if *size == DEFAULT_CONTEXT_SIZE {
+                Some(Color::Green)
+            } else {
+                None
+            },
+        })
+        .collect();
+
+    let selected = list_picker::select_value(&items, "Select context size:")?;
+
+    Ok(match selected {
+        Some(value) => Some(value.parse().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid context size value: {error}"),
+            )
+        })?),
+        None => None,
+    })
+}
+
+pub fn is_supported_context_size(size: u32) -> bool {
+    CONTEXT_SIZE_OPTIONS.contains(&size)
+}
+
+fn format_context_size(size: u32) -> String {
+    let short = if size >= 1000 {
+        format!("{}K", size / 1024)
+    } else {
+        size.to_string()
+    };
+
+    if size == DEFAULT_CONTEXT_SIZE {
+        format!("{size} ({short}, default)")
+    } else {
+        format!("{size} ({short})")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        CudaBuild, compute_cap_to_architecture, extract_version, parse_compute_caps, yes_no_input,
+        CudaBuild, compute_cap_to_architecture, extract_version, format_context_size,
+        parse_compute_caps, yes_no_input, DEFAULT_CONTEXT_SIZE,
     };
 
     #[test]
@@ -465,14 +516,32 @@ built with GNU 13.3.0 for Linux x86_64\n";
         assert!(!yes_no_input("n"));
         assert!(!yes_no_input("no"));
     }
+
+    #[test]
+    fn context_size_is_formatted_for_display() {
+        assert_eq!(
+            format_context_size(DEFAULT_CONTEXT_SIZE),
+            "16384 (16K, default)"
+        );
+        assert_eq!(format_context_size(8192), "8192 (8K)");
+    }
 }
 
-pub fn run_client(model: &str, input: Option<ClientInput>, verbose: bool) -> io::Result<()> {
+pub fn run_client(
+    model: &str,
+    ctx_size: u32,
+    input: Option<ClientInput>,
+    verbose: bool,
+) -> io::Result<()> {
     if verbose {
-        println!("llama-cli -hf {model}");
+        println!("llama-cli --ctx-size {ctx_size} -hf {model}");
     }
     let mut command = Command::new("llama-cli");
-    command.arg("-hf").arg(model);
+    command
+        .arg("--ctx-size")
+        .arg(ctx_size.to_string())
+        .arg("-hf")
+        .arg(model);
 
     match input {
         Some(ClientInput::Prompt(prompt)) => {
@@ -533,11 +602,14 @@ fn read_prompt_file(path: &str) -> io::Result<String> {
     fs::read_to_string(path)
 }
 
-pub fn run_server(model: &str, verbose: bool) -> io::Result<()> {
+pub fn run_server(model: &str, ctx_size: u32, verbose: bool) -> io::Result<()> {
     if verbose {
-        println!("llama-server --webui-mcp-proxy -hf {model}");
+        println!("llama-server --webui-mcp-proxy --ctx-size {ctx_size} -hf {model}");
     }
     let status = Command::new("llama-server")
+        .arg("--webui-mcp-proxy")
+        .arg("--ctx-size")
+        .arg(ctx_size.to_string())
         .arg("-hf")
         .arg(model)
         .status()?;

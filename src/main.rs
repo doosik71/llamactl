@@ -16,6 +16,7 @@ enum RunMode {
 struct CliArgs {
     run_mode: Option<RunMode>,
     model: Option<String>,
+    ctx_size: Option<u32>,
     prompt: Option<String>,
     file: Option<String>,
     list: bool,
@@ -108,6 +109,19 @@ fn main() {
         }
     };
 
+    let ctx_size = match args.ctx_size {
+        Some(size) => size,
+        None if automated => llama_cpp::DEFAULT_CONTEXT_SIZE,
+        None => match llama_cpp::select_context_size() {
+            Ok(Some(size)) => size,
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!("Failed to select context size: {error}");
+                std::process::exit(1);
+            }
+        },
+    };
+
     let client_input = match (args.prompt, args.file) {
         (Some(prompt), None) => Some(llama_cpp::ClientInput::Prompt(prompt)),
         (None, Some(file)) => Some(llama_cpp::ClientInput::File(file)),
@@ -120,8 +134,8 @@ fn main() {
         RunMode::Client if automated => {
             llama_cpp::run_completion(&selected_model, client_input, verbose)
         }
-        RunMode::Client => llama_cpp::run_client(&selected_model, client_input, verbose),
-        RunMode::Server => llama_cpp::run_server(&selected_model, verbose),
+        RunMode::Client => llama_cpp::run_client(&selected_model, ctx_size, client_input, verbose),
+        RunMode::Server => llama_cpp::run_server(&selected_model, ctx_size, verbose),
     };
 
     if let Err(error) = result {
@@ -138,6 +152,7 @@ fn main() {
 fn parse_args() -> Result<CliArgs, String> {
     let mut run_mode = None;
     let mut model = None;
+    let mut ctx_size = None;
     let mut prompt = None;
     let mut file = None;
     let mut list = false;
@@ -160,6 +175,10 @@ fn parse_args() -> Result<CliArgs, String> {
                 let value = args.next().ok_or("--model requires a value.")?;
                 model = Some(value);
             }
+            "--ctx-size" => {
+                let value = args.next().ok_or("--ctx-size requires a value.")?;
+                ctx_size = Some(parse_ctx_size(&value)?);
+            }
             "--prompt" => {
                 let value = args.next().ok_or("--prompt requires a value.")?;
                 prompt = Some(value);
@@ -177,6 +196,7 @@ fn parse_args() -> Result<CliArgs, String> {
     Ok(CliArgs {
         run_mode,
         model,
+        ctx_size,
         prompt,
         file,
         list,
@@ -192,7 +212,23 @@ fn parse_run_mode(value: &str) -> Result<RunMode, String> {
 }
 
 fn print_help() {
-    println!("Usage: ezllama [--list] [--mode client|server] [--model <name>]");
+    println!(
+        "Usage: ezllama [--list] [--mode client|server] [--model <name>] [--ctx-size <size>]"
+    );
+}
+
+fn parse_ctx_size(value: &str) -> Result<u32, String> {
+    let size = value
+        .parse::<u32>()
+        .map_err(|_| format!("Invalid value for --ctx-size: {value}"))?;
+
+    if llama_cpp::is_supported_context_size(size) {
+        Ok(size)
+    } else {
+        Err(format!(
+            "Unsupported value for --ctx-size: {size}. Supported values are 4096, 8192, 16384, and 32768."
+        ))
+    }
 }
 
 fn select_run_mode() -> io::Result<RunMode> {

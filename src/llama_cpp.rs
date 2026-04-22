@@ -50,7 +50,7 @@ pub fn check(options: CheckOptions) -> io::Result<()> {
         ));
     }
 
-    if !ask_yes_no("Install llama.cpp? [y/N]: ") {
+    if !ask_yes_no("Install llama.cpp? [Y/n]: ") {
         if options.verbose {
             println!("Skipping installation.");
         }
@@ -214,10 +214,11 @@ fn install_plan(interactive: bool) -> io::Result<InstallPlan> {
         "if [ -d llama.cpp ]; then \
                 cd llama.cpp; \
             else \
-                git clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp; \
+                git clone https://github.com/ggml-org/llama.cpp.git && cd llama.cpp; \
             fi && \
-            cmake -B build -DLLAMA_SERVER=ON -DGGML_CUDA=ON {extra_cmake_flags} && \
-            cmake --build build -j && \
+            rm -rf build && \
+            cmake -B build -DLLAMA_SERVER=ON -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release {extra_cmake_flags} && \
+            cmake --build build --config Release -j4 && \
             mkdir -p ~/.local/bin && \
             cp -f \"$(pwd)/build/bin/llama-cli\" ~/.local/bin/llama-cli && \
             cp -f \"$(pwd)/build/bin/llama-server\" ~/.local/bin/llama-server && \
@@ -373,10 +374,12 @@ fn ask_yes_no(prompt: &str) -> bool {
         return false;
     }
 
-    matches!(
-        input.trim().to_lowercase().as_str(),
-        "y" | "yes" | "예" | "ㅇ"
-    )
+    yes_no_input(&input)
+}
+
+fn yes_no_input(input: &str) -> bool {
+    let trimmed = input.trim().to_lowercase();
+    trimmed.is_empty() || matches!(trimmed.as_str(), "y" | "yes" | "예" | "ㅇ")
 }
 
 fn run_install_command(command: &str) -> io::Result<()> {
@@ -394,7 +397,9 @@ fn run_install_command(command: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CudaBuild, compute_cap_to_architecture, extract_version, parse_compute_caps};
+    use super::{
+        CudaBuild, compute_cap_to_architecture, extract_version, parse_compute_caps, yes_no_input,
+    };
 
     #[test]
     fn compute_capability_is_converted_to_cmake_architecture() {
@@ -440,6 +445,25 @@ ggml_cuda_init: found 1 CUDA devices (Total VRAM: 8110 MiB):\n\
 version: 8886 (17f624516)\n\
 built with GNU 13.3.0 for Linux x86_64\n";
         assert_eq!(extract_version(output).as_deref(), Some("8886"));
+    }
+
+    #[test]
+    fn empty_yes_no_input_defaults_to_yes() {
+        assert!(yes_no_input(""));
+        assert!(yes_no_input("   "));
+    }
+
+    #[test]
+    fn affirmative_yes_no_input_is_accepted() {
+        assert!(yes_no_input("y"));
+        assert!(yes_no_input("Yes"));
+        assert!(yes_no_input("예"));
+    }
+
+    #[test]
+    fn negative_yes_no_input_is_rejected() {
+        assert!(!yes_no_input("n"));
+        assert!(!yes_no_input("no"));
     }
 }
 

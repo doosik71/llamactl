@@ -104,6 +104,19 @@ fn extract_version(output: &str) -> Option<String> {
         .map(str::trim)
         .filter(|line| !line.is_empty())
     {
+        let lower = line.to_lowercase();
+        if (lower.starts_with("version:") || lower.starts_with("version "))
+            && let Some(version) = extract_version_from_line(line)
+        {
+            return Some(version);
+        }
+    }
+
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
         if let Some(version) = extract_version_from_line(line) {
             return Some(version);
         }
@@ -166,13 +179,36 @@ struct InstallPlan {
     command: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CudaBuild {
+    architectures: String,
+    force_cublas: bool,
+}
+
+impl CudaBuild {
+    fn cmake_flags(&self) -> String {
+        let mut flags = vec![format!(
+            "-DCMAKE_CUDA_ARCHITECTURES=\"{}\"",
+            self.architectures
+        )];
+
+        if self.force_cublas {
+            flags.push("-DGGML_CUDA_FORCE_CUBLAS=ON".to_string());
+        }
+
+        flags.join(" ")
+    }
+}
+
 fn install_plan(interactive: bool) -> io::Result<InstallPlan> {
-    let Some(cuda_architectures) = resolve_cuda_architectures(interactive)? else {
+    let Some(cuda_build) = resolve_cuda_build(interactive)? else {
         return Ok(InstallPlan {
             message: "No CUDA architecture was selected.".to_string(),
             command: None,
         });
     };
+
+    let extra_cmake_flags = cuda_build.cmake_flags();
 
     let cmd = format!(
         "if [ -d llama.cpp ]; then \
@@ -180,7 +216,7 @@ fn install_plan(interactive: bool) -> io::Result<InstallPlan> {
             else \
                 git clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp; \
             fi && \
-            cmake -B build -DLLAMA_SERVER=ON -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=\"{cuda_architectures}\" && \
+            cmake -B build -DLLAMA_SERVER=ON -DGGML_CUDA=ON {extra_cmake_flags} && \
             cmake --build build -j && \
             mkdir -p ~/.local/bin && \
             cp -f \"$(pwd)/build/bin/llama-cli\" ~/.local/bin/llama-cli && \
@@ -194,9 +230,15 @@ fn install_plan(interactive: bool) -> io::Result<InstallPlan> {
     })
 }
 
-fn resolve_cuda_architectures(interactive: bool) -> io::Result<Option<String>> {
-    if let Some(detected) = detect_cuda_architectures() {
-        println!("Detected CUDA architecture target: {detected}");
+fn resolve_cuda_build(interactive: bool) -> io::Result<Option<CudaBuild>> {
+    if let Some(detected) = detect_cuda_build() {
+        println!(
+            "Detected CUDA architecture target: {}",
+            detected.architectures
+        );
+        if detected.force_cublas {
+            println!("Using GGML_CUDA_FORCE_CUBLAS=ON for sm_61 stability.");
+        }
         return Ok(Some(detected));
     }
 
@@ -208,7 +250,7 @@ fn resolve_cuda_architectures(interactive: bool) -> io::Result<Option<String>> {
     select_cuda_architecture()
 }
 
-fn detect_cuda_architectures() -> Option<String> {
+fn detect_cuda_build() -> Option<CudaBuild> {
     let output = Command::new("nvidia-smi")
         .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
         .output()
@@ -222,8 +264,9 @@ fn detect_cuda_architectures() -> Option<String> {
     parse_compute_caps(&stdout)
 }
 
-fn parse_compute_caps(output: &str) -> Option<String> {
+fn parse_compute_caps(output: &str) -> Option<CudaBuild> {
     let mut architectures = BTreeSet::new();
+    let mut force_cublas = false;
 
     for line in output.lines() {
         let compute_cap = line.trim();
@@ -232,13 +275,19 @@ fn parse_compute_caps(output: &str) -> Option<String> {
         }
 
         let arch = compute_cap_to_architecture(compute_cap)?;
+        if arch == "61" {
+            force_cublas = true;
+        }
         architectures.insert(arch);
     }
 
     if architectures.is_empty() {
         None
     } else {
-        Some(architectures.into_iter().collect::<Vec<_>>().join(";"))
+        Some(CudaBuild {
+            architectures: architectures.into_iter().collect::<Vec<_>>().join(";"),
+            force_cublas,
+        })
     }
 }
 
@@ -259,7 +308,7 @@ fn compute_cap_to_architecture(compute_cap: &str) -> Option<String> {
     Some(format!("{major}{minor}"))
 }
 
-fn select_cuda_architecture() -> io::Result<Option<String>> {
+fn select_cuda_architecture() -> io::Result<Option<CudaBuild>> {
     let options = [
         PickerItem {
             display: "61 - Pascal (GTX 1080 and related)".to_string(),
@@ -303,7 +352,14 @@ fn select_cuda_architecture() -> io::Result<Option<String>> {
         },
     ];
 
-    list_picker::select_value(&options, "Select CUDA architecture target:")
+    Ok(
+        list_picker::select_value(&options, "Select CUDA architecture target:")?.map(
+            |architectures| CudaBuild {
+                force_cublas: architectures.split(';').any(|arch| arch == "61"),
+                architectures,
+            },
+        ),
+    )
 }
 
 fn ask_yes_no(prompt: &str) -> bool {
@@ -338,7 +394,7 @@ fn run_install_command(command: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_cap_to_architecture, parse_compute_caps};
+    use super::{CudaBuild, compute_cap_to_architecture, extract_version, parse_compute_caps};
 
     #[test]
     fn compute_capability_is_converted_to_cmake_architecture() {
@@ -350,13 +406,40 @@ mod tests {
     #[test]
     fn multiple_gpus_are_deduplicated_and_sorted() {
         let output = "8.9\n6.1\n8.9\n";
-        assert_eq!(parse_compute_caps(output).as_deref(), Some("61;89"));
+        assert_eq!(
+            parse_compute_caps(output),
+            Some(CudaBuild {
+                architectures: "61;89".to_string(),
+                force_cublas: true,
+            })
+        );
     }
 
     #[test]
     fn invalid_compute_capability_is_rejected() {
         assert!(compute_cap_to_architecture("not-supported").is_none());
         assert!(parse_compute_caps("6.1\nnot-supported\n").is_none());
+    }
+
+    #[test]
+    fn force_cublas_is_enabled_for_sm_61() {
+        assert_eq!(
+            parse_compute_caps("6.1\n"),
+            Some(CudaBuild {
+                architectures: "61".to_string(),
+                force_cublas: true,
+            })
+        );
+    }
+
+    #[test]
+    fn version_line_is_preferred_over_compute_capability() {
+        let output = "\
+ggml_cuda_init: found 1 CUDA devices (Total VRAM: 8110 MiB):\n\
+  Device 0: NVIDIA GeForce GTX 1080, compute capability 6.1, VMM: yes, VRAM: 8110 MiB\n\
+version: 8886 (17f624516)\n\
+built with GNU 13.3.0 for Linux x86_64\n";
+        assert_eq!(extract_version(output).as_deref(), Some("8886"));
     }
 }
 

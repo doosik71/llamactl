@@ -1,6 +1,9 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
+
+use crate::list_picker::{self, PickerItem};
 
 pub struct CheckOptions {
     pub verbose: bool,
@@ -27,7 +30,7 @@ pub fn check(options: CheckOptions) -> io::Result<()> {
         println!("llama-cli, llama-server, and llama-completion are not all installed.");
     }
 
-    let install_plan = install_plan();
+    let install_plan = install_plan(options.interactive)?;
     if options.verbose {
         println!("Installation command:");
         println!("{}", install_plan.message);
@@ -57,7 +60,7 @@ pub fn check(options: CheckOptions) -> io::Result<()> {
         ));
     }
 
-    run_install_command(command)?;
+    run_install_command(&command)?;
     if options.verbose {
         println!("Installation command executed.");
     }
@@ -159,27 +162,148 @@ fn looks_like_version(token: &str) -> bool {
 }
 
 struct InstallPlan {
-    message: &'static str,
-    command: Option<&'static str>,
+    message: String,
+    command: Option<String>,
 }
 
-fn install_plan() -> InstallPlan {
-    let cmd = "if [ -d llama.cpp ]; then \
+fn install_plan(interactive: bool) -> io::Result<InstallPlan> {
+    let Some(cuda_architectures) = resolve_cuda_architectures(interactive)? else {
+        return Ok(InstallPlan {
+            message: "No CUDA architecture was selected.".to_string(),
+            command: None,
+        });
+    };
+
+    let cmd = format!(
+        "if [ -d llama.cpp ]; then \
                 cd llama.cpp; \
             else \
                 git clone https://github.com/ggerganov/llama.cpp.git && cd llama.cpp; \
             fi && \
-            cmake -B build -DLLAMA_SERVER=ON -DGGML_CUDA=ON && \
+            cmake -B build -DLLAMA_SERVER=ON -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=\"{cuda_architectures}\" && \
             cmake --build build -j && \
             mkdir -p ~/.local/bin && \
             cp -f \"$(pwd)/build/bin/llama-cli\" ~/.local/bin/llama-cli && \
             cp -f \"$(pwd)/build/bin/llama-server\" ~/.local/bin/llama-server && \
-            cp -f \"$(pwd)/build/bin/llama-completion\" ~/.local/bin/llama-completion";
+            cp -f \"$(pwd)/build/bin/llama-completion\" ~/.local/bin/llama-completion"
+    );
 
-    InstallPlan {
-        message: cmd,
+    Ok(InstallPlan {
+        message: cmd.clone(),
         command: Some(cmd),
+    })
+}
+
+fn resolve_cuda_architectures(interactive: bool) -> io::Result<Option<String>> {
+    if let Some(detected) = detect_cuda_architectures() {
+        println!("Detected CUDA architecture target: {detected}");
+        return Ok(Some(detected));
     }
+
+    if !interactive {
+        return Ok(None);
+    }
+
+    println!("Unable to detect CUDA architecture automatically.");
+    select_cuda_architecture()
+}
+
+fn detect_cuda_architectures() -> Option<String> {
+    let output = Command::new("nvidia-smi")
+        .args(["--query-gpu=compute_cap", "--format=csv,noheader"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_compute_caps(&stdout)
+}
+
+fn parse_compute_caps(output: &str) -> Option<String> {
+    let mut architectures = BTreeSet::new();
+
+    for line in output.lines() {
+        let compute_cap = line.trim();
+        if compute_cap.is_empty() {
+            continue;
+        }
+
+        let arch = compute_cap_to_architecture(compute_cap)?;
+        architectures.insert(arch);
+    }
+
+    if architectures.is_empty() {
+        None
+    } else {
+        Some(architectures.into_iter().collect::<Vec<_>>().join(";"))
+    }
+}
+
+fn compute_cap_to_architecture(compute_cap: &str) -> Option<String> {
+    let mut parts = compute_cap.split('.');
+    let major = parts.next()?.trim();
+    let minor = parts.next()?.trim();
+
+    if major.is_empty()
+        || minor.is_empty()
+        || parts.next().is_some()
+        || !major.chars().all(|ch| ch.is_ascii_digit())
+        || !minor.chars().all(|ch| ch.is_ascii_digit())
+    {
+        return None;
+    }
+
+    Some(format!("{major}{minor}"))
+}
+
+fn select_cuda_architecture() -> io::Result<Option<String>> {
+    let options = [
+        PickerItem {
+            display: "61 - Pascal (GTX 1080 and related)".to_string(),
+            value: "61".to_string(),
+            color: None,
+        },
+        PickerItem {
+            display: "70 - Volta (V100 and related)".to_string(),
+            value: "70".to_string(),
+            color: None,
+        },
+        PickerItem {
+            display: "75 - Turing (RTX 20xx, T4)".to_string(),
+            value: "75".to_string(),
+            color: None,
+        },
+        PickerItem {
+            display: "80 - Ampere datacenter (A100)".to_string(),
+            value: "80".to_string(),
+            color: None,
+        },
+        PickerItem {
+            display: "86 - Ampere consumer (RTX 30xx)".to_string(),
+            value: "86".to_string(),
+            color: None,
+        },
+        PickerItem {
+            display: "89 - Ada (RTX 40xx)".to_string(),
+            value: "89".to_string(),
+            color: None,
+        },
+        PickerItem {
+            display: "90 - Hopper (H100)".to_string(),
+            value: "90".to_string(),
+            color: None,
+        },
+        PickerItem {
+            display: "61;70;75;80;86;89;90 - Common multi-arch build".to_string(),
+            value: "61;70;75;80;86;89;90".to_string(),
+            color: None,
+        },
+    ];
+
+    list_picker::select_value(&options, "Select CUDA architecture target:")
 }
 
 fn ask_yes_no(prompt: &str) -> bool {
@@ -209,6 +333,30 @@ fn run_install_command(command: &str) -> io::Result<()> {
             io::ErrorKind::Other,
             format!("Exit code: {status}"),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_cap_to_architecture, parse_compute_caps};
+
+    #[test]
+    fn compute_capability_is_converted_to_cmake_architecture() {
+        assert_eq!(compute_cap_to_architecture("6.1").as_deref(), Some("61"));
+        assert_eq!(compute_cap_to_architecture("8.9").as_deref(), Some("89"));
+        assert_eq!(compute_cap_to_architecture("9.0").as_deref(), Some("90"));
+    }
+
+    #[test]
+    fn multiple_gpus_are_deduplicated_and_sorted() {
+        let output = "8.9\n6.1\n8.9\n";
+        assert_eq!(parse_compute_caps(output).as_deref(), Some("61;89"));
+    }
+
+    #[test]
+    fn invalid_compute_capability_is_rejected() {
+        assert!(compute_cap_to_architecture("not-supported").is_none());
+        assert!(parse_compute_caps("6.1\nnot-supported\n").is_none());
     }
 }
 

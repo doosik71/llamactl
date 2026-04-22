@@ -43,7 +43,15 @@ fn run_picker(
     let mut selected = 0usize;
     let mut offset = 0usize;
 
-    draw(stdout, title, &query, items, &filtered_indices, selected, offset)?;
+    draw(
+        stdout,
+        title,
+        &query,
+        items,
+        &filtered_indices,
+        selected,
+        offset,
+    )?;
 
     loop {
         if !event::poll(Duration::from_millis(200))? {
@@ -132,7 +140,15 @@ fn run_picker(
         }
 
         if changed {
-            draw(stdout, title, &query, items, &filtered_indices, selected, offset)?;
+            draw(
+                stdout,
+                title,
+                &query,
+                items,
+                &filtered_indices,
+                selected,
+                offset,
+            )?;
         }
     }
 }
@@ -176,12 +192,21 @@ fn draw(
             queue!(stdout, SetForegroundColor(color))?;
         }
 
-        queue!(stdout, Print(line), SetAttribute(Attribute::Reset), ResetColor)?;
+        queue!(
+            stdout,
+            Print(line),
+            SetAttribute(Attribute::Reset),
+            ResetColor
+        )?;
     }
 
     let rendered_rows = end.saturating_sub(offset);
     for y in (rendered_rows + 1)..=visible_rows {
-        queue!(stdout, cursor::MoveTo(0, y as u16), Clear(ClearType::CurrentLine))?;
+        queue!(
+            stdout,
+            cursor::MoveTo(0, y as u16),
+            Clear(ClearType::CurrentLine)
+        )?;
     }
 
     if rows > 1 {
@@ -259,7 +284,7 @@ fn format_line(prefix: &str, text: &str, max_width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{filter_items, PickerItem};
+    use super::{PickerItem, filter_items};
 
     #[test]
     fn filter_items_matches_case_insensitive_substrings() {

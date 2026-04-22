@@ -6,9 +6,11 @@
 
 1. CUDA Toolkit을 확인합니다.
 2. `llama-cli`, `llama-server`, `llama-completion`을 확인합니다.
-3. 실행 모드를 고릅니다. `client` 또는 `server`
-4. 모델을 고릅니다. 직접 지정할 수도 있습니다.
-5. 선택한 모드에 따라 `llama-cli`, `llama-server`, 또는 `llama-completion`을 실행합니다.
+3. `llama.cpp`가 없으면 `nvidia-smi`로 CUDA architecture를 감지해 해당 값으로 빌드합니다.
+4. 자동 감지에 실패하면 빌드 타겟 architecture를 목록에서 선택하게 합니다.
+5. 실행 모드를 고릅니다. `client` 또는 `server`
+6. 모델을 고릅니다. 직접 지정할 수도 있습니다.
+7. 선택한 모드에 따라 `llama-cli`, `llama-server`, 또는 `llama-completion`을 실행합니다.
 
 자동화 실행 모드에서는 상태 출력과 선택 UI를 건너뜁니다.
 
@@ -19,6 +21,7 @@
 - Rust toolchain
 - `llama.cpp` 관련 실행 파일
 - CUDA Toolkit은 선택 사항이지만, 현재 프로그램은 실행 전 확인을 수행합니다.
+- NVIDIA GPU에서 CUDA 빌드를 자동 감지하려면 `nvidia-smi`가 필요합니다.
 
 ### 빌드
 
@@ -104,6 +107,7 @@ ezllama --mode server --model Qwen/Qwen3-4B-GGUF
 
 - CUDA Toolkit이 없으면 설치를 시도할 수 있습니다.
 - `llama-cli`, `llama-server`, `llama-completion`이 모두 있어야 정상 실행됩니다.
+- `llama.cpp` 자동 설치 시 CUDA architecture를 먼저 자동 감지하고, 실패하면 목록에서 선택합니다.
 - 모델 목록은 Hugging Face GGUF 검색 결과를 기반으로 표시됩니다.
 - 모델 선택 화면에서는 방향키, `PageUp/PageDown`, `Enter`, `Esc`를 사용할 수 있습니다.
 
